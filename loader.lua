@@ -1,8 +1,3 @@
--- luma loader (public). Users run:
---   loadstring(game:HttpGet("https://raw.githubusercontent.com/PlanetCatYT/luma-loader/main/loader.lua"))()
---
--- It does the ScriptContext bypass + disables the client-side anticheat (ClientManager), then loads
--- the luarmor script, which handles the update warning, anti-dump check, and loading the real script.
 local LUARMOR_URL = "https://api.luarmor.net/files/v4/loaders/e63bd83e96ab9992d6b1bbd08cc93209.lua"
 local LOBBY_PLACE_ID = 4111023553
 
