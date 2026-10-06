@@ -9,9 +9,6 @@ end
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Only run the Deepwoken-specific ScriptContext / ClientManager anticheat bypass when we're actually in
--- Deepwoken (its universe GameId, which covers every Deepwoken place) and not the lobby. Other games
--- don't have ClientManager, so skip the bypass there and go straight to the loader.
 if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
     local e = game:GetService("ScriptContext").Error
     if not (getconnections and getconstants and setconstant and pcall(function()
@@ -44,8 +41,6 @@ if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
     end
 end
 
--- Retry the luarmor fetch -- a transient TLS/schannel handshake failure (SEC_E_INVALID_TOKEN) shouldn't
--- force a full re-inject. Linear backoff (0.5s, 1s, 1.5s, 2s); only kick once every attempt has failed.
 local function fetchLoader()
     local ATTEMPTS = 5
     local lastErr
