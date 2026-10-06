@@ -37,26 +37,11 @@ if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
         return LocalPlayer:Kick("luma: failed bypass in ClientManager")
     end
 
-    -- Poll (bounded) for ClientManager instead of WaitForChild, which otherwise warns ("infinite yield")
-    -- at 5s and can hang forever if ClientActor hasn't spawned yet / the game moved it.
-    local clientManager
-    local deadline = os.clock() + 15
-    repeat
-        local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
-        local clientActor = playerScripts and playerScripts:FindFirstChild("ClientActor")
-        clientManager = clientActor and clientActor:FindFirstChild("ClientManager")
-        if clientManager then
-            break
-        end
-        task.wait(0.1)
-    until os.clock() > deadline
-
-    if not clientManager then
-        return LocalPlayer:Kick("luma: ClientManager not found (game updated?)")
+    if not pcall(function()
+        LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("ClientActor"):WaitForChild("ClientManager").Enabled = false
+    end) then
+        return LocalPlayer:Kick("luma: failed disabling ClientManager")
     end
-    pcall(function()
-        clientManager.Enabled = false
-    end)
 end
 
 -- Retry the luarmor fetch -- a transient TLS/schannel handshake failure (SEC_E_INVALID_TOKEN) shouldn't
