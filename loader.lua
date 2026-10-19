@@ -9,7 +9,6 @@ local function dbg(stage)
     if DEBUG then warn("[luma] " .. stage) end
 end
 dbg("start")
-local startClock = os.clock()
 
 if not game:IsLoaded() then
     dbg("waiting game.Loaded")
@@ -103,29 +102,6 @@ local function fetchLoader()
         end
     end
     return nil, lastErr
-end
-
--- Both fetches ahead risk hitting HTTP on a cold stack: fetchLoader uses game:HttpGet (Roblox backend),
--- and the luarmor loader's fetchFromCore then uses the EXECUTOR's request (a separate backend). On a fast
--- inject either can hard-hang the thread -- the intermittent universal/aba freeze (the webhook never fires
--- because it sits after those fetches). Deepwoken never hit it: its AC-bypass burns several seconds first.
--- So for non-deepwoken, guarantee that same warm-up window since start, then prime the executor backend
--- with one throwaway request. Everything here is bounded and pcall'd, so it can never add a hang of its own.
-if not isDeepwoken then
-    dbg("warmup: settling")
-    while os.clock() - startClock < 5 do
-        task.wait()
-    end
-    local reqfn = (syn and syn.request)
-        or (http and http.request)
-        or (type(request) == "function" and request)
-        or (type(http_request) == "function" and http_request)
-        or nil
-    if reqfn then
-        dbg("warmup: priming executor http")
-        pcall(reqfn, { Url = LUARMOR_URL, Method = "GET" })
-    end
-    dbg("warmup: done")
 end
 
 dbg("fetching luarmor loader")
