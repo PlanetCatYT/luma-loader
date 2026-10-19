@@ -34,11 +34,23 @@ if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
         return LocalPlayer:Kick("luma: failed bypass in ClientManager")
     end
 
-    if not pcall(function()
-        LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("ClientActor"):WaitForChild("ClientManager").Enabled = false
-    end) then
-        return LocalPlayer:Kick("luma: failed disabling ClientManager")
+    -- Bounded waits, NOT a timeoutless WaitForChild: on an early inject ClientActor/ClientManager
+    -- do not exist yet, and the no-timeout form there hangs this thread forever (pcall cannot catch a
+    -- blocking yield) -- that was the freeze on inject, before the webhook ever fires. WaitForChild
+    -- with a timeout returns the instant the child appears, so a slow/early load still succeeds; it
+    -- only gives up if ClientManager never shows (game moved/renamed it), and then we KICK -- never
+    -- proceed undetected, never freeze -- so the user just re-executes once they are fully in-game.
+    local function waitChild(parent, name, timeout)
+        local ok, child = pcall(function() return parent:WaitForChild(name, timeout) end)
+        return ok and child or nil
     end
+    local ps = waitChild(LocalPlayer, "PlayerScripts", 30)
+    local actor = ps and waitChild(ps, "ClientActor", 30)
+    local clientManager = actor and waitChild(actor, "ClientManager", 30)
+    if not clientManager then
+        return LocalPlayer:Kick("luma: client not ready (injected too early or the game updated) -- rejoin and re-execute once you are fully in-game")
+    end
+    pcall(function() clientManager.Enabled = false end)
 end
 
 local function fetchLoader()
