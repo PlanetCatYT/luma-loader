@@ -53,6 +53,24 @@ if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
     pcall(function() clientManager.Enabled = false end)
 end
 
+-- Client-readiness gate (all games). Deepwoken warms up implicitly: its AC-bypass block above spends
+-- time and waits on ClientManager/PlayerScripts before any fetch. Universal/aba skip that entirely, so
+-- on a too-early inject the fetch chain + script ran against a cold client/HTTP stack and hung before
+-- anything logged -- which is why the webhook never fired and it only froze on universal/aba. Wait,
+-- bounded, for the player + PlayerGui: instant once in-game, a safety net on an early inject (and it
+-- gives the HTTP stack time to come up before the first request).
+do
+    local lp = LocalPlayer
+    local deadline = os.clock() + 30
+    while not lp and os.clock() < deadline do
+        task.wait()
+        lp = Players.LocalPlayer
+    end
+    if lp then
+        pcall(function() lp:WaitForChild("PlayerGui", 30) end)
+    end
+end
+
 local function fetchLoader()
     local ATTEMPTS = 5
     local lastErr
