@@ -18,8 +18,9 @@ dbg("game loaded")
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local isDeepwoken = game.GameId == DEEPWOKEN_GAME_ID
 
-if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
+if isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID then
     dbg("deepwoken: scriptcontext bypass")
     local e = game:GetService("ScriptContext").Error
     if not (getconnections and getconstants and setconstant and pcall(function()
@@ -53,13 +54,15 @@ if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
     end
 end
 
--- Client-readiness gate (all games). The real fix for "freezes instantly on an early inject, nothing
+-- Client-readiness gate (universal/aba). The real fix for "freezes instantly on an early inject, nothing
 -- shows, webhook never fires": a main-thread game:HttpGet / executor request made before the client's
 -- HTTP stack is up BLOCKS with no yield, which hard-freezes Roblox (Task Manager territory). Deepwoken
 -- never hit it because its AC-bypass block above already burns several seconds before any fetch;
 -- universal/aba skipped straight to the fetch. Gate until the player is genuinely in-game -- LocalPlayer,
 -- PlayerGui, then a spawned Character with a HumanoidRootPart. A live Character means the client/server
 -- connection (and therefore HTTP) is up. All bounded, proceeding on timeout, so the gate never hangs.
+-- Deepwoken skips the Character wait: it loads fine already, and its character sits behind a long
+-- character-select/loading screen, so waiting there would only stall the deepwoken load for no reason.
 do
     dbg("gate: waiting LocalPlayer")
     local lp = LocalPlayer
@@ -71,13 +74,15 @@ do
     if lp then
         dbg("gate: waiting PlayerGui")
         pcall(function() lp:WaitForChild("PlayerGui", 30) end)
-        dbg("gate: waiting Character")
-        local d2 = os.clock() + 45
-        while os.clock() < d2 do
-            local char = lp.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then break end
-            task.wait(0.1)
+        if not isDeepwoken then
+            dbg("gate: waiting Character")
+            local d2 = os.clock() + 45
+            while os.clock() < d2 do
+                local char = lp.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then break end
+                task.wait(0.1)
+            end
         end
     end
     dbg("gate: done")
