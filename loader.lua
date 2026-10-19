@@ -45,22 +45,12 @@ if game.GameId == DEEPWOKEN_GAME_ID and game.PlaceId ~= LOBBY_PLACE_ID then
         return LocalPlayer:Kick("luma: failed bypass in ClientManager")
     end
 
-    -- Bounded waits, NOT a timeoutless WaitForChild: on an early inject ClientActor/ClientManager
-    -- do not exist yet, and the no-timeout form there hangs this thread forever (pcall cannot catch a
-    -- blocking yield). WaitForChild with a timeout returns the instant the child appears, so a slow/early
-    -- load still succeeds; it only gives up if ClientManager never shows, and then we KICK (never freeze).
     dbg("deepwoken: disabling ClientManager")
-    local function waitChild(parent, name, timeout)
-        local ok, child = pcall(function() return parent:WaitForChild(name, timeout) end)
-        return ok and child or nil
+    if not pcall(function()
+        LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("ClientActor"):WaitForChild("ClientManager").Enabled = false
+    end) then
+        return LocalPlayer:Kick("luma: failed disabling ClientManager")
     end
-    local ps = waitChild(LocalPlayer, "PlayerScripts", 30)
-    local actor = ps and waitChild(ps, "ClientActor", 30)
-    local clientManager = actor and waitChild(actor, "ClientManager", 30)
-    if not clientManager then
-        return LocalPlayer:Kick("luma: client not ready (injected too early or the game updated) -- rejoin and re-execute once you are fully in-game")
-    end
-    pcall(function() clientManager.Enabled = false end)
 end
 
 -- Client-readiness gate (all games). The real fix for "freezes instantly on an early inject, nothing
