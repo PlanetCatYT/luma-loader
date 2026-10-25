@@ -17,8 +17,56 @@ dbg("game loaded")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local isDeepwoken = game.GameId == DEEPWOKEN_GAME_ID
+local inGameplay = isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID
 
-if isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID then
+local function resolveClientManager(timeout)
+    local cm
+    pcall(function()
+        local ps = LocalPlayer:WaitForChild("PlayerScripts", timeout)
+        local actor = ps and ps:WaitForChild("ClientActor", timeout)
+        cm = actor and actor:WaitForChild("ClientManager", timeout)
+    end)
+    return cm
+end
+
+local function confirmDisabled(cm)
+    if not cm then
+        return false
+    end
+    pcall(function()
+        cm.Enabled = false
+    end)
+    local ok, enabled = pcall(function()
+        return cm.Enabled
+    end)
+    return ok and enabled == false
+end
+
+local clientManagerWatch
+local function lockClientManagerDisabled(timeout)
+    local deadline = os.clock() + (timeout or 10)
+    repeat
+        local cm = resolveClientManager(5)
+        if confirmDisabled(cm) then
+            if clientManagerWatch then
+                pcall(function() clientManagerWatch:Disconnect() end)
+                clientManagerWatch = nil
+            end
+            pcall(function()
+                clientManagerWatch = cm:GetPropertyChangedSignal("Enabled"):Connect(function()
+                    if cm.Enabled then
+                        cm.Enabled = false
+                    end
+                end)
+            end)
+            return true
+        end
+        task.wait(0.1)
+    until os.clock() >= deadline
+    return false
+end
+
+if inGameplay then
     dbg("deepwoken: scriptcontext bypass")
     local e = game:GetService("ScriptContext").Error
     if not (getconnections and getconstants and setconstant and pcall(function()
@@ -45,11 +93,10 @@ if isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID then
     end
 
     dbg("deepwoken: disabling ClientManager")
-    if not pcall(function()
-        LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("ClientActor"):WaitForChild("ClientManager").Enabled = false
-    end) then
+    if not lockClientManagerDisabled(15) then
         return LocalPlayer:Kick("luma: failed disabling ClientManager")
     end
+    dbg("deepwoken: ClientManager disabled + watched")
 end
 
 do
@@ -103,6 +150,14 @@ task.wait(1)
 local fn = loadstring(body)
 if not fn then
     return LocalPlayer:Kick("luma: failed to compile loader")
+end
+
+if inGameplay then
+    dbg("final gate: re-confirming ClientManager disabled")
+    if not lockClientManagerDisabled(10) then
+        return LocalPlayer:Kick("luma: ClientManager not disabled at load time -- aborting")
+    end
+    dbg("final gate: ClientManager confirmed disabled")
 end
 
 dbg("running luarmor loader")
