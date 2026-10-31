@@ -67,12 +67,6 @@ local function lockClientManagerDisabled(timeout)
     return false
 end
 
--- Loading-screen A-spam. Blow through Deepwoken's LoadingGui on EVERY gameplay load by tapping A the way a
--- player would (pure client input via VirtualInputManager -- the StartMenu.Start remote is an AC honeypot).
--- The core only clicked through when an automation farm was resuming, so a plain manual join sat on the
--- loading screen; doing it here in the loader makes it unconditional -- it runs regardless of automation.
--- Presence-gated (only taps while a LoadingGui is actually up) and capped, so it's a no-op where there's
--- no loading screen and can never spin forever.
 local function pressA()
     pcall(function()
         local vim = Instance.new("VirtualInputManager")
