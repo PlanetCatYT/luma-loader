@@ -1,5 +1,6 @@
 local LUARMOR_URL = "https://api.luarmor.net/files/v4/loaders/e63bd83e96ab9992d6b1bbd08cc93209.lua"
 local LOBBY_PLACE_ID = 4111023553
+local CHIME_LOBBY_PLACE_ID = 12559711136
 local DEEPWOKEN_GAME_ID = 1359573625
 
 local DEBUG = (getgenv and getgenv().LumaDebug) and true or false
@@ -17,7 +18,7 @@ dbg("game loaded")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local isDeepwoken = game.GameId == DEEPWOKEN_GAME_ID
-local inGameplay = isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID
+local inGameplay = isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID and game.PlaceId ~= CHIME_LOBBY_PLACE_ID
 
 local function resolveClientManager(timeout)
     local cm
