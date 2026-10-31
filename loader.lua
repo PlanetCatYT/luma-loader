@@ -67,7 +67,58 @@ local function lockClientManagerDisabled(timeout)
     return false
 end
 
+-- Loading-screen A-spam. Blow through Deepwoken's LoadingGui on EVERY gameplay load by tapping A the way a
+-- player would (pure client input via VirtualInputManager -- the StartMenu.Start remote is an AC honeypot).
+-- The core only clicked through when an automation farm was resuming, so a plain manual join sat on the
+-- loading screen; doing it here in the loader makes it unconditional -- it runs regardless of automation.
+-- Presence-gated (only taps while a LoadingGui is actually up) and capped, so it's a no-op where there's
+-- no loading screen and can never spin forever.
+local function pressA()
+    pcall(function()
+        local vim = Instance.new("VirtualInputManager")
+        vim:SendKeyEvent(true, Enum.KeyCode.A, false, game)
+        vim:SendKeyEvent(false, Enum.KeyCode.A, false, game)
+    end)
+end
+
+local function spamLoadingScreen(timeout)
+    local lp = LocalPlayer or Players.LocalPlayer
+    if not lp then
+        return
+    end
+    -- Wait (up to 10s) for the loading screen to appear OR the character to already be in. Poll, not
+    -- WaitForChild, so a character that loads in mid-wait bails immediately instead of stalling.
+    local loadingGui
+    local findDeadline = os.clock() + 10
+    repeat
+        if lp.Character then
+            return
+        end
+        local pg = lp:FindFirstChildOfClass("PlayerGui")
+        loadingGui = pg and pg:FindFirstChild("LoadingGui")
+        if loadingGui then
+            break
+        end
+        task.wait()
+    until os.clock() >= findDeadline
+    if not loadingGui then
+        return
+    end
+    local deadline = os.clock() + (timeout or 30)
+    repeat
+        pressA()
+        task.wait(0.2)
+    until not loadingGui.Parent or lp.Character or os.clock() >= deadline
+end
+
 if inGameplay then
+    -- Kick the A-spam off in the background so it clicks through the loading screen in parallel with the
+    -- ClientManager bypass / disable below and keeps going while the gate waits and the luarmor body fetches.
+    dbg("deepwoken: starting loading-screen A-spam")
+    task.spawn(function()
+        spamLoadingScreen(30)
+    end)
+
     dbg("deepwoken: scriptcontext bypass")
     local e = game:GetService("ScriptContext").Error
     if not (getconnections and getconstants and setconstant and pcall(function()
