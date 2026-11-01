@@ -20,46 +20,89 @@ local LocalPlayer = Players.LocalPlayer
 local isDeepwoken = game.GameId == DEEPWOKEN_GAME_ID
 local inGameplay = isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID and game.PlaceId ~= CHIME_LOBBY_PLACE_ID
 
-local function resolveClientManager(timeout)
-    local cm
-    pcall(function()
-        local ps = LocalPlayer:WaitForChild("PlayerScripts", timeout)
-        local actor = ps and ps:WaitForChild("ClientActor", timeout)
-        cm = actor and actor:WaitForChild("ClientManager", timeout)
-    end)
-    return cm
-end
-
-local function confirmDisabled(cm)
+-- Keep ClientActor.ClientManager disabled through the WHOLE load, not once. A single Enabled=false that
+-- reads back false isn't a guarantee: Deepwoken flips it back on, and a respawn / Actor rebuild around
+-- spawn -- exactly when we inject -- hands us a FRESH ClientManager that's running again. The old watch
+-- only tracked the one instance it first saw, so a rebuilt ClientManager ran enabled and the script
+-- loaded with the anticheat live. So pin the current one, re-disable it the instant its Enabled flips,
+-- re-pin any replacement ClientManager, re-bind a rebuilt ClientActor, and keep a slow poll backstop.
+-- Mirrors the core's Hooking.watchClientManager so the loader and core hold the exact same guarantee.
+local function pinClientManager(cm)
     if not cm then
-        return false
+        return
     end
     pcall(function()
-        cm.Enabled = false
+        if cm.Enabled then
+            cm.Enabled = false
+        end
     end)
-    local ok, enabled = pcall(function()
-        return cm.Enabled
+    pcall(function()
+        cm:GetPropertyChangedSignal("Enabled"):Connect(function()
+            if cm.Enabled then
+                pcall(function() cm.Enabled = false end)
+            end
+        end)
     end)
-    return ok and enabled == false
 end
 
-local clientManagerWatch
+local clientManagerWatchStarted = false
+local function startClientManagerWatch(playerScripts)
+    if clientManagerWatchStarted then
+        return
+    end
+    clientManagerWatchStarted = true
+
+    local function bindActor(clientActor)
+        if not clientActor then
+            return
+        end
+        pinClientManager(clientActor:FindFirstChild("ClientManager"))
+        pcall(function()
+            clientActor.ChildAdded:Connect(function(child)
+                if child.Name == "ClientManager" then
+                    pinClientManager(child)
+                end
+            end)
+        end)
+    end
+
+    bindActor(playerScripts:FindFirstChild("ClientActor"))
+    pcall(function()
+        playerScripts.ChildAdded:Connect(function(child)
+            if child.Name == "ClientActor" then
+                bindActor(child)
+            end
+        end)
+    end)
+
+    -- Slow poll backstop in case a property signal is ever missed or a rebuild raced the connections.
+    task.spawn(function()
+        while true do
+            task.wait(2)
+            pcall(function()
+                local clientActor = playerScripts:FindFirstChild("ClientActor")
+                local cm = clientActor and clientActor:FindFirstChild("ClientManager")
+                if cm and cm.Enabled then
+                    cm.Enabled = false
+                end
+            end)
+        end
+    end)
+end
+
+-- Wait (bounded) for the first ClientManager, disable it, and start the persistent watch that survives
+-- rebuilds. Returns whether we actually disabled one -- the loader kicks if we never do, so it never
+-- proceeds to load with the anticheat still live.
 local function lockClientManagerDisabled(timeout)
     local deadline = os.clock() + (timeout or 10)
+    local playerScripts
     repeat
-        local cm = resolveClientManager(5)
-        if confirmDisabled(cm) then
-            if clientManagerWatch then
-                pcall(function() clientManagerWatch:Disconnect() end)
-                clientManagerWatch = nil
-            end
-            pcall(function()
-                clientManagerWatch = cm:GetPropertyChangedSignal("Enabled"):Connect(function()
-                    if cm.Enabled then
-                        cm.Enabled = false
-                    end
-                end)
-            end)
+        playerScripts = playerScripts or LocalPlayer:FindFirstChild("PlayerScripts")
+        local clientActor = playerScripts and playerScripts:FindFirstChild("ClientActor")
+        local cm = clientActor and clientActor:FindFirstChild("ClientManager")
+        if cm then
+            pinClientManager(cm)
+            startClientManagerWatch(playerScripts)
             return true
         end
         task.wait(0.1)
