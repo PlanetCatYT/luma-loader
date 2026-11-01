@@ -186,26 +186,51 @@ local function fetchLoader()
     return nil, lastErr
 end
 
-dbg("fetching luarmor loader")
-local body, err = fetchLoader()
-if not body then
-    return LocalPlayer:Kick("luma: failed to fetch loader after retries (" .. tostring(err) .. ")")
-end
-dbg("luarmor loader fetched (" .. tostring(#body) .. " bytes)")
-task.wait(1)
-local fn = loadstring(body)
-if not fn then
-    return LocalPlayer:Kick("luma: failed to compile loader")
+-- The luarmor VM intermittently throws "attempt to perform arithmetic on nil and number" partway
+-- through loading -- a transient VM glitch, not a real fault and not a compile error. When that
+-- specific error shows up, re-fetch and run the whole thing again until it loads clean. Any OTHER
+-- failure (fetch, compile, gate, or a different runtime error) is genuine, so it still kicks as
+-- before instead of looping forever. Backoff grows then caps at 3s.
+local function isArithmeticGlitch(e)
+    return type(e) == "string" and e:lower():find("arithmetic") ~= nil
 end
 
-if inGameplay then
-    dbg("final gate: re-confirming ClientManager disabled")
-    if not lockClientManagerDisabled(10) then
-        return LocalPlayer:Kick("luma: ClientManager not disabled at load time -- aborting")
+local attempt = 0
+while true do
+    attempt = attempt + 1
+    dbg("load attempt " .. attempt)
+
+    local body, err = fetchLoader()
+    if not body then
+        return LocalPlayer:Kick("luma: failed to fetch loader after retries (" .. tostring(err) .. ")")
     end
-    dbg("final gate: ClientManager confirmed disabled")
-end
+    dbg("luarmor loader fetched (" .. tostring(#body) .. " bytes)")
+    task.wait(1)
 
-dbg("running luarmor loader")
-fn()
-dbg("luarmor loader returned")
+    local fn = loadstring(body)
+    if not fn then
+        return LocalPlayer:Kick("luma: failed to compile loader")
+    end
+
+    if inGameplay then
+        dbg("final gate: re-confirming ClientManager disabled")
+        if not lockClientManagerDisabled(10) then
+            return LocalPlayer:Kick("luma: ClientManager not disabled at load time -- aborting")
+        end
+        dbg("final gate: ClientManager confirmed disabled")
+    end
+
+    dbg("running luarmor loader")
+    local ok, runErr = pcall(fn)
+    if ok then
+        dbg("luarmor loader returned")
+        break
+    end
+
+    if not isArithmeticGlitch(runErr) then
+        return LocalPlayer:Kick("luma: loader error -- " .. tostring(runErr))
+    end
+
+    warn("[luma-loader] luarmor VM arithmetic glitch on attempt " .. attempt .. " -- reloading")
+    task.wait(math.min(attempt * 0.5, 3))
+end
