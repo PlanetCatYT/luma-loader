@@ -139,7 +139,7 @@ if inGameplay then
     end
 
     dbg("deepwoken: disabling ClientManager")
-    if not lockClientManagerDisabled(15) then
+    if not lockClientManagerDisabled(30) then
         return LocalPlayer:Kick("luma: failed disabling ClientManager")
     end
     dbg("deepwoken: ClientManager disabled + watched")
