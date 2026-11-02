@@ -20,13 +20,6 @@ local LocalPlayer = Players.LocalPlayer
 local isDeepwoken = game.GameId == DEEPWOKEN_GAME_ID
 local inGameplay = isDeepwoken and game.PlaceId ~= LOBBY_PLACE_ID and game.PlaceId ~= CHIME_LOBBY_PLACE_ID
 
--- Keep ClientActor.ClientManager disabled through the WHOLE load, not once. A single Enabled=false that
--- reads back false isn't a guarantee: Deepwoken flips it back on, and a respawn / Actor rebuild around
--- spawn -- exactly when we inject -- hands us a FRESH ClientManager that's running again. The old watch
--- only tracked the one instance it first saw, so a rebuilt ClientManager ran enabled and the script
--- loaded with the anticheat live. So pin the current one, re-disable it the instant its Enabled flips,
--- re-pin any replacement ClientManager, re-bind a rebuilt ClientActor, and keep a slow poll backstop.
--- Mirrors the core's Hooking.watchClientManager so the loader and core hold the exact same guarantee.
 local function pinClientManager(cm)
     if not cm then
         return
@@ -75,7 +68,6 @@ local function startClientManagerWatch(playerScripts)
         end)
     end)
 
-    -- Slow poll backstop in case a property signal is ever missed or a rebuild raced the connections.
     task.spawn(function()
         while true do
             task.wait(2)
@@ -90,9 +82,6 @@ local function startClientManagerWatch(playerScripts)
     end)
 end
 
--- Wait (bounded) for the first ClientManager, disable it, and start the persistent watch that survives
--- rebuilds. Returns whether we actually disabled one -- the loader kicks if we never do, so it never
--- proceeds to load with the anticheat still live.
 local function lockClientManagerDisabled(timeout)
     local deadline = os.clock() + (timeout or 10)
     local playerScripts
@@ -123,8 +112,6 @@ local function spamLoadingScreen(timeout)
     if not lp then
         return
     end
-    -- Wait (up to 10s) for the loading screen to appear OR the character to already be in. Poll, not
-    -- WaitForChild, so a character that loads in mid-wait bails immediately instead of stalling.
     local loadingGui
     local findDeadline = os.clock() + 10
     repeat
@@ -149,8 +136,6 @@ local function spamLoadingScreen(timeout)
 end
 
 if inGameplay then
-    -- Kick the A-spam off in the background so it clicks through the loading screen in parallel with the
-    -- ClientManager bypass / disable below and keeps going while the gate waits and the luarmor body fetches.
     dbg("deepwoken: starting loading-screen A-spam")
     task.spawn(function()
         spamLoadingScreen(30)
@@ -229,13 +214,35 @@ local function fetchLoader()
     return nil, lastErr
 end
 
--- The luarmor VM intermittently throws "attempt to perform arithmetic on nil and number" partway
--- through loading -- a transient VM glitch, not a real fault and not a compile error. When that
--- specific error shows up, re-fetch and run the whole thing again until it loads clean. Any OTHER
--- failure (fetch, compile, gate, or a different runtime error) is genuine, so it still kicks as
--- before instead of looping forever. Backoff grows then caps at 3s.
-local function isArithmeticGlitch(e)
-    return type(e) == "string" and e:lower():find("arithmetic") ~= nil
+local function attemptLoad()
+    local body, err = fetchLoader()
+    if not body then
+        return false, "failed to fetch loader (" .. tostring(err) .. ")"
+    end
+    dbg("luarmor loader fetched (" .. tostring(#body) .. " bytes)")
+    task.wait(1)
+
+    local fn = loadstring(body)
+    if not fn then
+        return false, "failed to compile loader"
+    end
+
+    if inGameplay then
+        dbg("final gate: re-confirming ClientManager disabled")
+        if not lockClientManagerDisabled(10) then
+            return false, "ClientManager not disabled at load time"
+        end
+        dbg("final gate: ClientManager confirmed disabled")
+    end
+
+    dbg("running luarmor loader")
+    local ok, runErr = pcall(fn)
+    if not ok then
+        return false, "loader error -- " .. tostring(runErr)
+    end
+
+    dbg("luarmor loader returned")
+    return true
 end
 
 local attempt = 0
@@ -243,37 +250,11 @@ while true do
     attempt = attempt + 1
     dbg("load attempt " .. attempt)
 
-    local body, err = fetchLoader()
-    if not body then
-        return LocalPlayer:Kick("luma: failed to fetch loader after retries (" .. tostring(err) .. ")")
-    end
-    dbg("luarmor loader fetched (" .. tostring(#body) .. " bytes)")
-    task.wait(1)
-
-    local fn = loadstring(body)
-    if not fn then
-        return LocalPlayer:Kick("luma: failed to compile loader")
-    end
-
-    if inGameplay then
-        dbg("final gate: re-confirming ClientManager disabled")
-        if not lockClientManagerDisabled(10) then
-            return LocalPlayer:Kick("luma: ClientManager not disabled at load time -- aborting")
-        end
-        dbg("final gate: ClientManager confirmed disabled")
-    end
-
-    dbg("running luarmor loader")
-    local ok, runErr = pcall(fn)
+    local ok, reason = attemptLoad()
     if ok then
-        dbg("luarmor loader returned")
         break
     end
 
-    if not isArithmeticGlitch(runErr) then
-        return LocalPlayer:Kick("luma: loader error -- " .. tostring(runErr))
-    end
-
-    warn("[luma-loader] luarmor VM arithmetic glitch on attempt " .. attempt .. " -- reloading")
+    warn("[luma-loader] " .. tostring(reason) .. " on attempt " .. attempt .. " -- retrying")
     task.wait(math.min(attempt * 0.5, 3))
 end
