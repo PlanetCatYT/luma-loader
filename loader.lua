@@ -169,7 +169,7 @@ xpcall(function()
 
         dbg("deepwoken: disabling ClientManager")
         if not lockClientManagerDisabled(30) then
-            return LocalPlayer:Kick("luma: failed disabling ClientManager")
+            return warn("luma: failed disabling ClientManager")
         end
         dbg("deepwoken: ClientManager disabled + watched")
     end
