@@ -164,7 +164,7 @@ xpcall(function()
                 task.wait(0.67)
             until os.clock() > d
         end)) then
-            return LocalPlayer:Kick("luma: failed bypass in ClientManager")
+            return warn("luma: failed bypass in ClientManager")
         end
 
         dbg("deepwoken: disabling ClientManager")
