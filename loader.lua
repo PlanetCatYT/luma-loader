@@ -9,10 +9,12 @@ xpcall(function()
         if DEBUG then warn("[luma] " .. stage) end
     end
     dbg("start")
-
-    if not game:IsLoaded() then
+    local isLoadedOk, isLoaded = pcall(function() return game:IsLoaded() end)
+    if not isLoadedOk then
+        dbg("IsLoaded blocked (" .. tostring(isLoaded) .. "); skipping explicit gate")
+    elseif not isLoaded then
         dbg("waiting game.Loaded")
-        game.Loaded:Wait()
+        pcall(function() game.Loaded:Wait() end)
     end
     dbg("game loaded")
 
@@ -164,12 +166,12 @@ xpcall(function()
                 task.wait(0.67)
             until os.clock() > d
         end)) then
-            return warn("luma: failed bypass in ClientManager")
+            return LocalPlayer:Kick("luma: failed bypass in ClientManager")
         end
 
         dbg("deepwoken: disabling ClientManager")
         if not lockClientManagerDisabled(30) then
-            return warn("luma: failed disabling ClientManager")
+            return LocalPlayer:Kick("luma: failed disabling ClientManager")
         end
         dbg("deepwoken: ClientManager disabled + watched")
     end
@@ -199,11 +201,15 @@ xpcall(function()
         dbg("gate: done")
     end
 
+    local fetchNonce = 0
     local function fetchLoader()
         local ATTEMPTS = 5
         local lastErr
         for i = 1, ATTEMPTS do
-            local ok, body = pcall(game.HttpGet, game, LUARMOR_URL)
+            fetchNonce = fetchNonce + 1
+            local url = LUARMOR_URL
+                .. "?_=" .. ("%d-%d-%d"):format(os.time(), fetchNonce, math.random(1, 1000000000))
+            local ok, body = pcall(game.HttpGet, game, url)
             if ok and type(body) == "string" and #body > 0 then
                 return body
             end
