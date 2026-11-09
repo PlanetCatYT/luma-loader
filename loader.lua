@@ -9,6 +9,7 @@ xpcall(function()
         if DEBUG then warn("[luma] " .. stage) end
     end
     dbg("start")
+
     local isLoadedOk, isLoaded = pcall(function() return game:IsLoaded() end)
     if not isLoadedOk then
         dbg("IsLoaded blocked (" .. tostring(isLoaded) .. "); skipping explicit gate")
@@ -201,19 +202,54 @@ xpcall(function()
         dbg("gate: done")
     end
 
-    local fetchNonce = 0
+    local function requestFn()
+        return (syn and syn.request)
+            or (http and http.request)
+            or http_request
+            or request
+            or (fluxus and fluxus.request)
+            or (getgenv and getgenv().request)
+    end
+
+    local function fetchOnce()
+        local req = requestFn()
+        if req then
+            local ok, res = pcall(req, {
+                Url = LUARMOR_URL,
+                Method = "GET",
+                Headers = {
+                    ["Cache-Control"] = "no-cache, no-store, must-revalidate",
+                    ["Pragma"] = "no-cache",
+                },
+            })
+            if ok and type(res) == "table" then
+                local status = res.StatusCode or res.Status or 0
+                local body = res.Body
+                if type(body) == "string" and #body > 0 and (status == 200 or status == 0) then
+                    return body
+                end
+                return nil, status
+            end
+            return nil, res
+        end
+
+        -- No raw request API: fall back to game:HttpGet (may be cached, but better than not loading at all).
+        local ok, body = pcall(game.HttpGet, game, LUARMOR_URL)
+        if ok and type(body) == "string" and #body > 0 then
+            return body
+        end
+        return nil, body
+    end
+
     local function fetchLoader()
         local ATTEMPTS = 5
         local lastErr
         for i = 1, ATTEMPTS do
-            fetchNonce = fetchNonce + 1
-            local url = LUARMOR_URL
-                .. "?_=" .. ("%d-%d-%d"):format(os.time(), fetchNonce, math.random(1, 1000000000))
-            local ok, body = pcall(game.HttpGet, game, url)
-            if ok and type(body) == "string" and #body > 0 then
+            local body, err = fetchOnce()
+            if body then
                 return body
             end
-            lastErr = body
+            lastErr = err
             if i < ATTEMPTS then
                 task.wait(i * 0.5)
             end
