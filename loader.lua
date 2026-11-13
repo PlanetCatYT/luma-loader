@@ -212,28 +212,6 @@ xpcall(function()
     end
 
     local function fetchOnce()
-        local req = requestFn()
-        if req then
-            local ok, res = pcall(req, {
-                Url = LUARMOR_URL,
-                Method = "GET",
-                Headers = {
-                    ["Cache-Control"] = "no-cache, no-store, must-revalidate",
-                    ["Pragma"] = "no-cache",
-                },
-            })
-            if ok and type(res) == "table" then
-                local status = res.StatusCode or res.Status or 0
-                local body = res.Body
-                if type(body) == "string" and #body > 0 and (status == 200 or status == 0) then
-                    return body
-                end
-                return nil, status
-            end
-            return nil, res
-        end
-
-        -- No raw request API: fall back to game:HttpGet (may be cached, but better than not loading at all).
         local ok, body = pcall(game.HttpGet, game, LUARMOR_URL)
         if ok and type(body) == "string" and #body > 0 then
             return body
